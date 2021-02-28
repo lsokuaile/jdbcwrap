@@ -121,7 +121,7 @@ public class JdbcTool {
 		try {
 			ps = conn.prepareStatement("use " + database);
 			ps.execute();
-			//  select table_name from information_schema.tables where table_schema='test' and table_type='base table';
+			// // select table_name from information_schema.tables where table_schema='test' and table_type='base table';
 
 			ps = conn.prepareStatement("select table_name from information_schema.tables where table_schema='"+database+"' and table_type='base table';");
 			rs = ps.executeQuery();
