@@ -1,7 +1,6 @@
 package com.ghca.test;
 
 
-import com.alibaba.druid.util.JdbcConstants;
 import com.ghca.utils.JdbcTool;
 import com.ghca.utils.SqlUtis;
 import org.junit.Test;
