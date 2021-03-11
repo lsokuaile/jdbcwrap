@@ -17,6 +17,7 @@
  */
 package com.p6spy.engine.wrapper;
 
+import com.ghca.utils.ResultSetPrinter;
 import com.p6spy.engine.common.PreparedStatementInformation;
 import com.p6spy.engine.common.ResultSetInformation;
 import com.p6spy.engine.event.JdbcEventListener;
@@ -57,6 +58,14 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
   private final PreparedStatementInformation statementInformation;
 
   public static PreparedStatement wrap(PreparedStatement delegate, PreparedStatementInformation preparedStatementInformation, JdbcEventListener eventListener) {
+    //return delegate == null ? null : new PreparedStatementWrapper(delegate, preparedStatementInformation, eventListener);
+    // 拦截sql，脱敏处理
+    String statementQuery =  preparedStatementInformation.getStatementQuery();
+    System.out.println("拦截sql：");
+    System.out.println(statementQuery);
+    System.out.println();
+    // 替换sql
+    preparedStatementInformation.setStatementQuery(statementQuery);
     if (delegate == null) {
       return null;
     }
@@ -73,9 +82,17 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
   public ResultSet executeQuery() throws SQLException {
     SQLException e = null;
     long start = System.nanoTime();
+    ResultSet var4;
     try {
       eventListener.onBeforeExecuteQuery(statementInformation);
-      return ResultSetWrapper.wrap(delegate.executeQuery(), new ResultSetInformation(statementInformation), eventListener);
+//      return ResultSetWrapper.wrap(delegate.executeQuery(), new ResultSetInformation(statementInformation), eventListener);
+      var4 = ResultSetWrapper.wrap(this.delegate.executeQuery(), new ResultSetInformation(this.statementInformation), this.eventListener);
+      System.out.println("拦截数据：");
+      ResultSetPrinter.printResultSet(var4);
+      System.out.println();
+      return var4;
+      // 业务
+      //ResultSetPrinter.printResultSet(var4);
     } catch (SQLException sqle) {
       e = sqle;
       throw e;
