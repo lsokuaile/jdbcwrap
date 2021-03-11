@@ -119,12 +119,15 @@ public class JdbcTool {
 		PreparedStatement ps = null;
 		ResultSet rs = null;
 		try {
-			ps = conn.prepareStatement("use " + database);
-			ps.execute();
+//			ps = conn.prepareStatement("use " + database);
+//			ps.execute();
 			// // select table_name from information_schema.tables where table_schema='test' and table_type='base table';
 
-			ps = conn.prepareStatement("select table_name from information_schema.tables where table_schema='"+database+"' and table_type='base table';");
-			rs = ps.executeQuery();
+//			ps = conn.prepareStatement("select table_name from information_schema.tables where table_schema='"+database+"' and table_type='base table';");
+//			rs = ps.executeQuery();
+
+			Statement statement = conn.createStatement();
+			rs = statement.executeQuery("select table_name from information_schema.tables where table_schema='"+database+"' and table_type='base table';");
 
 			while (rs.next()) {
 				list.add(rs.getString(1));
