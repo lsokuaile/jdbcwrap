@@ -61,8 +61,11 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     public static PreparedStatement wrap(PreparedStatement delegate, PreparedStatementInformation preparedStatementInformation, JdbcEventListener eventListener) {
         // 模拟用户
         String username = "admin";
+        System.out.println("------------------------------------------------");
+        System.out.println("用户：" + username);
         String sql = preparedStatementInformation.getStatementQuery(); //原始sql
-        System.out.println("拦截前sql：\n" + sql);
+        System.out.println("------------------------------------------------");
+        System.out.println("拦截到sql：\n" + sql);
         // 根据用户名查询规则
         Map params = userAuth(username);
         // sql替换引擎
@@ -82,6 +85,8 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         String jsonStr = map.get(username);
         JSONObject jsonObject = JSONObject.parseObject(jsonStr);
         Map params = (Map) jsonObject.get("data");
+        System.out.println("------------------------------------------------");
+        System.out.printf("用户=%s,权限=%s",username,JSONObject.toJSON(params));
         return params;
     }
 
@@ -93,20 +98,22 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         String clientIp = "127.0.0.1";
         // 数据库用户名，conn中获取
         String dbuser = "admin";
+        System.out.println("------------------------------------------------");
+        System.out.printf("客户端ip=%s",clientIp);
+        System.out.println("------------------------------------------------");
+        System.out.printf("数据库用户名=%s",dbuser);
+        System.out.println("------------------------------------------------");
+        System.out.printf("数据库密码=%s",dbuser);
         StringBuffer sb = new StringBuffer("");
         // sql解析，返回Map<table.field>
         Collection<TableStat.Column> tablefieldList = SqlParseTool.execute(JdbcConstants.POSTGRESQL, sql);
-
-        String desensitizationexpression = "substr(student_name,6)";
-        tablefieldList.stream().forEach(tablefield -> {
-            sb.setLength(0);
-            System.out.println(tablefield.getTable() + "-" + tablefield.getName());
-            sb.append(sql.replaceAll(tablefield.getName(), desensitizationexpression));
-        });
+        System.out.println("------------------------------------------------");
+        System.out.printf("sql解析出来的表名.字段名");
 
         //获取APP数据规则的信息 不包含条件信息
         AuditAppDataRule ruleinfo = (AuditAppDataRule) ObjectTool.getObjectByMap(AuditAppDataRule.class, (Map<String, Object>) params.get("ruleinfo"));
 
+        // 校验符合条件的
         //获取IP条件信息
         List ipconditionslist = (List) params.get("ipconditionslist");
         ipconditionslist.forEach(
@@ -137,6 +144,21 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
                     AuditDateConditions datecs = (AuditDateConditions) ObjectTool.getObjectByMap(AuditDateConditions.class, (Map<String, Object>) dateconditions);
                 }
         );
+
+        if(ruleinfo.getType().equals("2")){
+            // 审计
+        } else if(ruleinfo.getType().equals("1")) {  // 脱敏
+            // 到app指令规则库中获取表达式
+            // final String desensitizationexpression = ruleinfo.getDesensitizationexpression();
+            // 模拟
+            final String desensitizationexpression = "substr(student_name,6)";
+            tablefieldList.stream().forEach(tablefield -> {
+                sb.setLength(0);
+                System.out.printf("%s.%s",tablefield.getTable(), tablefield.getName());
+                sb.append(sql.replaceAll(tablefield.getName(), desensitizationexpression));
+            });
+        }
+
         return sb.toString();
     }
 
