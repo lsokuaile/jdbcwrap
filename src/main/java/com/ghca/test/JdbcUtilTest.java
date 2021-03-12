@@ -15,9 +15,7 @@ public class JdbcUtilTest {
     public void test1(){
         try {
             Connection connection = JdbcTool.getConnection();
-            System.out.println("connection = " + connection);
-
-            List<String> resList = JdbcTool.getAllTableNameForMySql(connection, "ghca");
+            List<String> resList = JdbcTool.getAllTableNameForMySql(connection, "ghca2");
             resList.stream().forEach(item -> {
                 System.out.println(item);
             });
