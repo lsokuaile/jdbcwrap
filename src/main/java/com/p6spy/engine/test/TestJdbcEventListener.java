@@ -33,21 +33,21 @@ public class TestJdbcEventListener extends JdbcEventListener {
 
   @Override
   public void onBeforeAddBatch(StatementInformation statementInformation, String sql) {
-    System.out.println("拦截前：+++"+sql);
+    //System.out.println("拦截前：+++"+sql);
     sql = "select * from t_user a";
   }
   @Override
   public void onBeforeExecute(StatementInformation statementInformation, String sql) {
-    System.out.println("拦截前：+++"+sql);
+    //System.out.println("拦截前：+++"+sql);
     sql="select * from dual";
   }
   public void onBeforeExecuteQuery(StatementInformation statementInformation, String sql) {
-    System.out.println("拦截前：+++"+sql);
+    //System.out.println("拦截前：+++"+sql);
     sql = "select * from t_user a";
   }
 @Override
   public void onBeforeResultSetNext(ResultSetInformation resultSetInformation) {
-    System.out.println("数据拦截：+++");
+    //System.out.println("数据拦截：+++");
 //    ResultSet rs = resultSetInformation.getResultSet();
 ////    if(rs instanceof JDBC42ResultSet){
 ////      Field[] fields = ((JDBC42ResultSet) rs).fields;
@@ -94,7 +94,7 @@ public class TestJdbcEventListener extends JdbcEventListener {
 //  }
 }
   public void onBeforeGetResltSetDate(ResultSet resultSet){
-    System.out.println("数据拦截修改数据");
+    //System.out.println("数据拦截修改数据");
     try {
       ResultSetMetaData metaData = resultSet.getMetaData();
     } catch (SQLException e) {
@@ -104,11 +104,11 @@ public class TestJdbcEventListener extends JdbcEventListener {
 
   @Override
   public Object onAfterResultSetGet(ResultSetInformation resultSetInformation, int columnIndex, Object value, SQLException e) throws SQLException {
-    System.out.println("获取数据");
+   // System.out.println("onAfterResultSetGet获取数据");
     resultSetInformation.getResultSet().getMetaData().getSchemaName(columnIndex);
     String tableName = resultSetInformation.getResultSet().getMetaData().getTableName(columnIndex);
     String columnLabel = resultSetInformation.getResultSet().getMetaData().getColumnLabel(columnIndex);
-    System.out.println("表名："+tableName+"字段名为："+columnLabel);
+    //System.out.println("表名："+tableName+"字段名为："+columnLabel);
     if(value instanceof Integer){
       value = 10;
     }
