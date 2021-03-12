@@ -23,6 +23,7 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 
+import com.ghca.utils.ResultSetPrinter;
 import com.p6spy.engine.common.ResultSetInformation;
 import com.p6spy.engine.common.StatementInformation;
 import com.p6spy.engine.event.JdbcEventListener;
@@ -62,8 +63,16 @@ public class StatementWrapper extends AbstractWrapper implements Statement {
   public ResultSet getResultSet() throws SQLException {
     SQLException e = null;
     long start = System.nanoTime();
+    ResultSet var4;
     try {
-      return ResultSetWrapper.wrap(delegate.getResultSet(), new ResultSetInformation(statementInformation), eventListener);
+      // return ResultSetWrapper.wrap(delegate.getResultSet(), new ResultSetInformation(statementInformation), eventListener);
+      var4 =  ResultSetWrapper.wrap(delegate.getResultSet(), new ResultSetInformation(statementInformation), eventListener);
+      System.out.println("statementInformation数据拦截：");
+      ResultSetPrinter.printResultSet(var4);
+      // 判断数据脱敏，需要拿sql，解析出来table.field, 数据替换
+      //var4.updateNString("student_name","****");
+      System.out.println("statementInformation数据脱敏结果：");
+      return var4;
     } catch (SQLException sqle) {
       e = sqle;
       throw e;
@@ -80,7 +89,9 @@ public class StatementWrapper extends AbstractWrapper implements Statement {
     try {
       System.out.println(eventListener.getClass().getName());
       eventListener.onBeforeExecuteQuery(statementInformation, sql);
+      System.out.println("statementInformation拦截sql：\n");
       System.out.println("sql-----"+sql);
+      System.out.println("statementInformation处理后sql：\n" + sql);
       return ResultSetWrapper.wrap(delegate.executeQuery(sql), new ResultSetInformation(statementInformation), eventListener);
     } catch (SQLException sqle) {
       e = sqle;

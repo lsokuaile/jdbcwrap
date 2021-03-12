@@ -2,7 +2,6 @@ package com.ghca.test;
 
 
 import com.ghca.utils.JdbcTool;
-import com.ghca.utils.SqlUtis;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -15,7 +14,7 @@ public class JdbcUtilTest {
     public void test1(){
         try {
             Connection connection = JdbcTool.getConnection();
-            List<String> resList = JdbcTool.getAllTableNameForMySql(connection, "ghca2");
+            List<String> resList = JdbcTool.testSQL(connection, "ghca2");
             resList.stream().forEach(item -> {
                 System.out.println(item);
             });

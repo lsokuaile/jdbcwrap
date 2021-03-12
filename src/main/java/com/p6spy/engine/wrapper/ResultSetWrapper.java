@@ -39,6 +39,7 @@ import java.sql.Timestamp;
 import java.util.Calendar;
 import java.util.Map;
 
+import com.ghca.utils.ResultSetPrinter;
 import com.p6spy.engine.common.ResultSetInformation;
 import com.p6spy.engine.event.JdbcEventListener;
 
@@ -56,7 +57,19 @@ public class ResultSetWrapper extends AbstractWrapper implements ResultSet {
   private final ResultSetInformation resultSetInformation;
   private final JdbcEventListener eventListener;
 
-  public static ResultSet wrap(ResultSet delegate, ResultSetInformation resultSetInformation, JdbcEventListener eventListener) {
+  public static ResultSet wrap(ResultSet delegate, ResultSetInformation resultSetInformation, JdbcEventListener eventListener)  throws SQLException{
+    SQLException e = null;
+    System.out.println("-----------------------------------------拦截数据：");
+    try {
+      ResultSetPrinter.printResultSet(resultSetInformation.getResultSet());
+      // TODO 封装resultSetInformation.getResultSet()
+      System.out.println("-----------------------------------------处理后数据：");
+    } catch (SQLException sqle) {
+      e = sqle;
+      throw e;
+    } finally {
+    }
+
     if (delegate == null) {
       return null;
     }
