@@ -59,11 +59,13 @@ public class ResultSetWrapper extends AbstractWrapper implements ResultSet {
 
   public static ResultSet wrap(ResultSet delegate, ResultSetInformation resultSetInformation, JdbcEventListener eventListener)  throws SQLException{
     SQLException e = null;
-    System.out.println("-----------------------------------------拦截数据：");
+    // System.out.println("-----------------------------------------");
+    // System.out.println("-----------------------------------------ResultSetWrapper拦截数据：");
     try {
       ResultSetPrinter.printResultSet(resultSetInformation.getResultSet());
       // TODO 封装resultSetInformation.getResultSet()
-      System.out.println("-----------------------------------------处理后数据：");
+     // System.out.println("-----------------------------------------");
+     // System.out.println("------------------------------------------ResultSetWrapper处理后数据：");
     } catch (SQLException sqle) {
       e = sqle;
       throw e;

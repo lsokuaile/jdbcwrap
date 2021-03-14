@@ -17,16 +17,19 @@
  */
 package com.p6spy.engine.wrapper;
 
-import java.sql.*;
-import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.Executor;
-
 import com.p6spy.engine.common.CallableStatementInformation;
 import com.p6spy.engine.common.ConnectionInformation;
 import com.p6spy.engine.common.PreparedStatementInformation;
 import com.p6spy.engine.common.StatementInformation;
 import com.p6spy.engine.event.JdbcEventListener;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import javax.servlet.http.HttpServletRequest;
+import java.sql.*;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.Executor;
 
 /**
  * This implementation wraps a {@link Connection}  and notifies a {@link JdbcEventListener}
@@ -44,6 +47,17 @@ public class ConnectionWrapper extends AbstractWrapper implements Connection {
   private final ConnectionInformation connectionInformation;
 
   public static ConnectionWrapper wrap(Connection delegate, JdbcEventListener eventListener, ConnectionInformation connectionInformation) {
+    // TODO 获取数据库schema、账号、密码、 ip、端口
+    try {
+      DatabaseMetaData metaData = delegate.getMetaData();
+      ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+      HttpServletRequest request = attributes.getRequest();
+      request.getSession().setAttribute("metaData", metaData);
+      //ThreadLocalContextHolder.initScene(metaData);
+    } catch (Exception e){
+      e.printStackTrace();
+    }
+
     if (delegate == null) {
       return null;
     }
@@ -67,7 +81,7 @@ public class ConnectionWrapper extends AbstractWrapper implements Connection {
     this.connectionInformation = connectionInformation;
     this.jdbcEventListener = jdbcEventListener;
   }
-  
+
   public JdbcEventListener getJdbcEventListener() {
     return this.jdbcEventListener;
   }

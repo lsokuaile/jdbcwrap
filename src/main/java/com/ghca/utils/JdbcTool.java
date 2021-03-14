@@ -127,12 +127,12 @@ public class JdbcTool {
 //			rs = ps.executeQuery();
 
             // 模拟sql，测试prepareStatement
-//			ps = conn.prepareStatement("select student_id, student_name from student");
-//			rs = ps.executeQuery();
+			ps = conn.prepareStatement("select student_id, student_name from student");
+			rs = ps.executeQuery();
 
             // 模拟sql，测试statement
-            Statement statement = conn.createStatement();
-            rs = statement.executeQuery("select table_name from information_schema.tables where table_schema='" + database + "' and table_type='base table';");
+//            Statement statement = conn.createStatement();
+//            rs = statement.executeQuery("select table_name from information_schema.tables where table_schema='" + database + "' and table_type='base table';");
 
             while (rs.next()) {
                 list.add(rs.getString(1));
