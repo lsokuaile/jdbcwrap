@@ -25,6 +25,7 @@ import com.ghca.masking.entity.orm.table.core.strategy.audit.conditions.AuditApp
 import com.ghca.masking.entity.orm.table.core.strategy.audit.conditions.AuditDateConditions;
 import com.ghca.masking.entity.orm.table.core.strategy.audit.conditions.AuditDbuserConditions;
 import com.ghca.masking.entity.orm.table.core.strategy.audit.conditions.AuditIpConditions;
+import com.ghca.masking.entity.orm.table.core.strategy.audit.vo.ConnectionInfo;
 import com.ghca.masking.tools.object.ObjectTool;
 import com.ghca.masking.tools.permission.AuthUtil;
 import com.ghca.masking.tools.sql.SqlParseTool;
@@ -71,14 +72,12 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         // 根据用户名查询规则
         Map params = userAuth(username);
         // sql替换引擎
-        try{
+        try {
             if (!ObjectUtils.isEmpty(params)) {
                 sql = engine(params, sql);
-                System.out.println("------------------------------------------------");
-                System.out.println("替换后sql：\n" + sql);
                 preparedStatementInformation.setStatementQuery(sql);
             }
-        } catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
         }
         if (delegate == null) {
@@ -89,7 +88,7 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
 
     private static Map userAuth(String username) {
         Map<String, String> map = AuthUtil.queryByUsername(username);
-        if(ObjectUtils.isEmpty(map)) return null;
+        if (ObjectUtils.isEmpty(map)) return null;
         String jsonStr = map.get(username);
         JSONObject jsonObject = JSONObject.parseObject(jsonStr);
         Map params = (Map) jsonObject.get("data");
@@ -101,22 +100,72 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     /**
      * 审计规则,记录日志到文件; 脱敏规则处理sql做替换
      */
-    private static String engine(Map params, final String sql) throws Exception{
+    private static String engine(Map params, final String sql) throws Exception {
         //获取APP数据规则的信息 不包含条件信息
         AuditAppDataRule ruleinfo = (AuditAppDataRule) ObjectTool.getObjectByMap(AuditAppDataRule.class, (Map<String, Object>) params.get("ruleinfo"));
-        if(ObjectUtils.isEmpty(ruleinfo)) return sql;
+        if (ObjectUtils.isEmpty(ruleinfo)) return sql;
+        // 数据库连接信息
+        ConnectionInfo conInfo = getConnectionInfo();
+        String returnSql = "";
+        // 验证是否符合安全管控的条件
+        Boolean flag = getAuditAppDataRule(params, ruleinfo);
+        if (flag) {
+            if (ruleinfo.getType().equals("2")) {  // 审计
+                System.out.println("------------------------------------------------");
+                System.out.println("审计");
+            } else if (ruleinfo.getType().equals("1")) {  // 脱敏
+                returnSql = doMasking(sql, ruleinfo);
+                System.out.println("------------------------------------------------");
+                System.out.println("替换后sql：" + returnSql);
+                return returnSql;
+            }
+        }
+        return sql;
+    }
+
+    private static String doMasking(String sql, AuditAppDataRule ruleinfo) {
+        StringBuffer sb = new StringBuffer("");
         // sql解析
-        Collection<TableStat.Column> tablefieldList =getColumns(sql);
-        if(tablefieldList.isEmpty()) return sql;
+        Collection<TableStat.Column> tablefieldList = getColumns(sql);
+        if (tablefieldList.isEmpty()) return sql;
+        System.out.println("------------------------------------------------");
+        System.out.println("------------------------------------------------");
+        System.out.println("脱敏：");
+        // 到app指令规则库中获取表达式
+        final String desensitizationexpression = ruleinfo.getDesensitizationexpression();
+        System.out.println("------------------------------------------------");
+        System.out.printf("表达式=%s", desensitizationexpression);
+        System.out.println("");
+        tablefieldList.stream().forEach(tablefield -> {
+            // if(tablefield==规则中查询的表名、字段名){}
+            sb.setLength(0);
+            System.out.printf("%s.%s", tablefield.getTable(), tablefield.getName());
+            System.out.println("");
+            sb.append(sql.replaceAll(tablefield.getName(), desensitizationexpression));
+        });
+        return sb.toString();
+    }
+
+    /**
+     * 获取数据库连接信息
+     *
+     * @throws SQLException
+     */
+    private static ConnectionInfo getConnectionInfo() throws SQLException {
+        ConnectionInfo conInfo = new ConnectionInfo();
         // 数据库用户名，conn中获取
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         HttpServletRequest request = attributes.getRequest();
-        DatabaseMetaData metaData =  (DatabaseMetaData)request.getSession().getAttribute("metaData");
+        DatabaseMetaData metaData = (DatabaseMetaData) request.getSession().getAttribute("metaData");
         String userName = metaData.getUserName();
+        conInfo.setUserName(userName);
         String url = metaData.getURL();
-        String schemas = url.substring(url.indexOf("/",15)+1, url.indexOf('?'));
-        // 客户端ip(模拟)
+        conInfo.setUrl(url);
+        String schema = url.substring(url.indexOf("/", 15) + 1, url.indexOf('?'));
+        conInfo.setSchema(schema);
+        // 客户端ip
         String clientIp = RequestUtil.getRequestIp(request);
+        conInfo.setClientIp(clientIp);
         System.out.println("------------------------------------------------");
         System.out.printf("客户端ip=%s", clientIp);
         System.out.println("");
@@ -124,45 +173,20 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         System.out.printf("数据库url=%s", url);
         System.out.println("");
         System.out.println("------------------------------------------------");
-        System.out.printf("数据库用户名=%s", userName.substring(0,userName.indexOf('@')));
+        System.out.printf("数据库用户名=%s", userName.substring(0, userName.indexOf('@')));
         System.out.println("");
         System.out.println("------------------------------------------------");
-        System.out.printf("数据库ip=%s", userName.substring(userName.indexOf('@')+1));
+        System.out.printf("数据库ip=%s", userName.substring(userName.indexOf('@') + 1));
         System.out.println("");
         System.out.println("------------------------------------------------");
-        System.out.printf("数据库schemas=%s", schemas);
+        System.out.printf("数据库schemas=%s", schema);
         System.out.println("");
-        StringBuffer sb = new StringBuffer("");
-        // 验证是否符合安全管控的条件
-        Boolean bool  = getAuditAppDataRule(params, ruleinfo);
-        if(bool){
-            if (ruleinfo.getType().equals("2")) {  // 审计
-                System.out.println("------------------------------------------------");
-                System.out.println("审计");
-            } else if (ruleinfo.getType().equals("1")) {  // 脱敏
-                System.out.println("------------------------------------------------");
-                System.out.println("脱敏：");
-                // 到app指令规则库中获取表达式
-                final String desensitizationexpression = ruleinfo.getDesensitizationexpression();
-                System.out.println("------------------------------------------------");
-                System.out.printf("表达式=%s", desensitizationexpression);
-                System.out.println("");
-                // 模拟
-                // final String desensitizationexpression = "substr(student_name,6)";
-                tablefieldList.stream().forEach(tablefield -> {
-                    // if(tablefield==规则中查询的表名、字段名){}
-                    sb.setLength(0);
-                    System.out.printf("%s.%s", tablefield.getTable(), tablefield.getName());
-                    System.out.println("");
-                    sb.append(sql.replaceAll(tablefield.getName(), desensitizationexpression));
-                });
-            }
-        }
-        return sb.toString();
+        return conInfo;
     }
 
     /**
      * 校验符合条件的
+     *
      * @param params
      * @param ruleinfo
      * @return
@@ -250,7 +274,7 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
             System.out.println("-----------------------------------------");
             System.out.println("结果脱敏前数据：");
             // 判断数据脱敏，需要拿sql，解析出来table.field, 数据替换
-            while(var4.next()){
+            while (var4.next()) {
                 String value = var4.getString("student_name");
                 // String new_value = PubFunction.dePass(value);
                 String new_value = "****";
