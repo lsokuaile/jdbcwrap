@@ -100,13 +100,12 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     /**
      * 审计规则,记录日志到文件; 脱敏规则处理sql做替换
      */
-    private static String engine(Map params, final String sql) throws Exception {
+    private static String engine(Map params, String sql) throws Exception {
         //获取APP数据规则的信息 不包含条件信息
         AuditAppDataRule ruleinfo = (AuditAppDataRule) ObjectTool.getObjectByMap(AuditAppDataRule.class, (Map<String, Object>) params.get("ruleinfo"));
         if (ObjectUtils.isEmpty(ruleinfo)) return sql;
         // 数据库连接信息
         ConnectionInfo conInfo = getConnectionInfo();
-        String returnSql = "";
         // 验证是否符合安全管控的条件
         Boolean flag = getAuditAppDataRule(params, ruleinfo);
         if (flag) {
@@ -114,10 +113,9 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
                 System.out.println("------------------------------------------------");
                 System.out.println("审计");
             } else if (ruleinfo.getType().equals("1")) {  // 脱敏
-                returnSql = doMasking(sql, ruleinfo);
+                sql = doMasking(sql, ruleinfo);
                 System.out.println("------------------------------------------------");
-                System.out.println("替换后sql：" + returnSql);
-                return returnSql;
+                System.out.println("替换后sql：" + sql);
             }
         }
         return sql;
@@ -128,20 +126,19 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         // sql解析
         Collection<TableStat.Column> tablefieldList = getColumns(sql);
         if (tablefieldList.isEmpty()) return sql;
-        System.out.println("------------------------------------------------");
-        System.out.println("------------------------------------------------");
-        System.out.println("脱敏：");
         // 到app指令规则库中获取表达式
         final String desensitizationexpression = ruleinfo.getDesensitizationexpression();
         System.out.println("------------------------------------------------");
         System.out.printf("表达式=%s", desensitizationexpression);
         System.out.println("");
         tablefieldList.stream().forEach(tablefield -> {
-            // if(tablefield==规则中查询的表名、字段名){}
-            sb.setLength(0);
-            System.out.printf("%s.%s", tablefield.getTable(), tablefield.getName());
-            System.out.println("");
-            sb.append(sql.replaceAll(tablefield.getName(), desensitizationexpression));
+            // 模拟权限里只有一个字段table_name存在规则
+            if (tablefield.getName().equals("table_name")) {
+                sb.setLength(0);
+                System.out.printf("%s.%s", tablefield.getTable(), tablefield.getName());
+                System.out.println("");
+                sb.append(sql.replaceFirst(tablefield.getName(), desensitizationexpression));
+            }
         });
         return sb.toString();
     }
@@ -241,7 +238,7 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
                     System.out.println("");
                 }
         );
-        return false;
+        return true;
     }
 
     private static Collection<TableStat.Column> getColumns(String sql) {
@@ -269,10 +266,10 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         ResultSet var4;
         try {
             eventListener.onBeforeExecuteQuery(statementInformation);
-//      return ResultSetWrapper.wrap(delegate.executeQuery(), new ResultSetInformation(statementInformation), eventListener);
+            // return ResultSetWrapper.wrap(delegate.executeQuery(), new ResultSetInformation(statementInformation), eventListener);
             var4 = ResultSetWrapper.wrap(this.delegate.executeQuery(), new ResultSetInformation(this.statementInformation), this.eventListener);
             System.out.println("-----------------------------------------");
-            System.out.println("结果脱敏前数据：");
+            System.out.println("拦截到数据：");
             // 判断数据脱敏，需要拿sql，解析出来table.field, 数据替换
             while (var4.next()) {
                 String value = var4.getString("student_name");
