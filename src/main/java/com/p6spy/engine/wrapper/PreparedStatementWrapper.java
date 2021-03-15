@@ -17,6 +17,8 @@
  */
 package com.p6spy.engine.wrapper;
 
+import cn.hutool.core.date.DateTime;
+import cn.hutool.core.date.DateUtil;
 import com.alibaba.druid.stat.TableStat;
 import com.alibaba.druid.util.JdbcConstants;
 import com.alibaba.fastjson.JSONObject;
@@ -30,10 +32,10 @@ import com.ghca.masking.tools.object.ObjectTool;
 import com.ghca.masking.tools.permission.AuthUtil;
 import com.ghca.masking.tools.sql.SqlParseTool;
 import com.ghca.utils.RequestUtil;
-import com.ghca.utils.ResultSetPrinter;
 import com.p6spy.engine.common.PreparedStatementInformation;
 import com.p6spy.engine.common.ResultSetInformation;
 import com.p6spy.engine.event.JdbcEventListener;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -43,8 +45,9 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.sql.*;
 import java.sql.Date;
+import java.sql.*;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 /**
@@ -62,15 +65,15 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     private final PreparedStatementInformation statementInformation;
 
     public static PreparedStatement wrap(PreparedStatement delegate, PreparedStatementInformation preparedStatementInformation, JdbcEventListener eventListener) {
-        // 模拟用户
-        String username = "admin";
+        // 模拟客户端用户，默认admin
+        String clientUsername = "admin";
         System.out.println("------------------------------------------------");
-        System.out.println("用户：" + username);
+        System.out.println("客户端用户名：" + clientUsername);
         String sql = preparedStatementInformation.getStatementQuery(); //原始sql
         System.out.println("------------------------------------------------");
         System.out.println("拦截到sql：\n" + sql);
         // 根据用户名查询规则
-        Map params = userAuth(username);
+        Map params = userAuth(clientUsername);
         // sql替换引擎
         try {
             if (!ObjectUtils.isEmpty(params)) {
@@ -87,9 +90,10 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     }
 
     private static Map userAuth(String username) {
-        Map<String, String> map = AuthUtil.queryByUsername(username);
-        if (ObjectUtils.isEmpty(map)) return null;
-        String jsonStr = map.get(username);
+        String jsonStr = AuthUtil.queryByUsername(username);
+        if (StringUtils.isEmpty(jsonStr)) {
+            return null;
+        }
         JSONObject jsonObject = JSONObject.parseObject(jsonStr);
         Map params = (Map) jsonObject.get("data");
         System.out.println("------------------------------------------------");
@@ -101,18 +105,17 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
      * 审计规则,记录日志到文件; 脱敏规则处理sql做替换
      */
     private static String engine(Map params, String sql) throws Exception {
-        //获取APP数据规则的信息 不包含条件信息
-        AuditAppDataRule ruleinfo = (AuditAppDataRule) ObjectTool.getObjectByMap(AuditAppDataRule.class, (Map<String, Object>) params.get("ruleinfo"));
-        if (ObjectUtils.isEmpty(ruleinfo)) return sql;
         // 数据库连接信息
         ConnectionInfo conInfo = getConnectionInfo();
         // 验证是否符合安全管控的条件
-        Boolean flag = getAuditAppDataRule(params, ruleinfo);
-        if (flag) {
-            if (ruleinfo.getType().equals("2")) {  // 审计
+        List<Map<String, Object>> list = getAuthAppDataRule(params, conInfo);
+        Boolean flag = false;
+        for (Map<String, Object> ruleinfo : list) {
+            if (ruleinfo.get("type").equals("2")) {  // 审计
                 System.out.println("------------------------------------------------");
                 System.out.println("审计");
-            } else if (ruleinfo.getType().equals("1")) {  // 脱敏
+                // TODO 保存到文件
+            } else if (ruleinfo.get("type").equals("1")) {  // 脱敏
                 sql = doMasking(sql, ruleinfo);
                 System.out.println("------------------------------------------------");
                 System.out.println("替换后sql：" + sql);
@@ -121,21 +124,32 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         return sql;
     }
 
-    private static String doMasking(String sql, AuditAppDataRule ruleinfo) {
+    /**
+     * 脱敏业务
+     *
+     * @param sql
+     * @param ruleinfo
+     * @return
+     */
+    private static String doMasking(String sql, Map<String, Object> ruleinfo) {
         StringBuffer sb = new StringBuffer("");
         // sql解析
         Collection<TableStat.Column> tablefieldList = getColumns(sql);
         if (tablefieldList.isEmpty()) return sql;
-        // 到app指令规则库中获取表达式
-        final String desensitizationexpression = ruleinfo.getDesensitizationexpression();
+        // 表达式
+        final String desensitizationexpression = (String) ruleinfo.get("desensitizationexpression");
+        // 表名
+        final String tablename = (String) ruleinfo.get("tablename");
+        // 列名
+        final String columnname = (String) ruleinfo.get("columnname");
         System.out.println("------------------------------------------------");
         System.out.printf("表达式=%s", desensitizationexpression);
         System.out.println("");
         tablefieldList.stream().forEach(tablefield -> {
-            // 模拟权限里只有一个字段table_name存在规则
-            if (tablefield.getName().equals("table_name")) {
+            // 表名、列名完全匹配
+            if (tablefield.getTable().equals(tablename) && tablefield.getName().equals(columnname)) {
                 sb.setLength(0);
-                System.out.printf("%s.%s", tablefield.getTable(), tablefield.getName());
+                System.out.printf("替换sql中表名%s.字段名%s", tablefield.getTable(), tablefield.getName());
                 System.out.println("");
                 sb.append(sql.replaceFirst(tablefield.getName(), desensitizationexpression));
             }
@@ -154,11 +168,12 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         HttpServletRequest request = attributes.getRequest();
         DatabaseMetaData metaData = (DatabaseMetaData) request.getSession().getAttribute("metaData");
-        String userName = metaData.getUserName();
+        String userName = metaData.getUserName().substring(0, metaData.getUserName().indexOf('@'));
         conInfo.setUserName(userName);
         String url = metaData.getURL();
         conInfo.setUrl(url);
         String schema = url.substring(url.indexOf("/", 15) + 1, url.indexOf('?'));
+        String dbip = url.substring(url.indexOf("//") + 2, url.indexOf(':', 15));
         conInfo.setSchema(schema);
         // 客户端ip
         String clientIp = RequestUtil.getRequestIp(request);
@@ -170,10 +185,10 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
         System.out.printf("数据库url=%s", url);
         System.out.println("");
         System.out.println("------------------------------------------------");
-        System.out.printf("数据库用户名=%s", userName.substring(0, userName.indexOf('@')));
+        System.out.printf("数据库用户名=%s", userName);
         System.out.println("");
         System.out.println("------------------------------------------------");
-        System.out.printf("数据库ip=%s", userName.substring(userName.indexOf('@') + 1));
+        System.out.printf("数据库ip=%s", dbip);
         System.out.println("");
         System.out.println("------------------------------------------------");
         System.out.printf("数据库schemas=%s", schema);
@@ -182,63 +197,218 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
     }
 
     /**
-     * 校验符合条件的
+     * 校验符合条件的（返回满足条件的）
      *
-     * @param params
-     * @param ruleinfo
+     * @param params 权限
+     * @param ruleinfo 规则信息
+     * @param conInfo db连接信息
      * @return
      */
-    private static Boolean getAuditAppDataRule(Map params, AuditAppDataRule ruleinfo) {
-        Boolean bool = false;
-        //获取IP条件信息
-        List ipconditionslist = (List) params.get("ipconditionslist");
-        ipconditionslist.forEach(
-                ipconditions -> {
-                    AuditIpConditions ipcs = (AuditIpConditions) ObjectTool.getObjectByMap(AuditIpConditions.class, (Map<String, Object>) ipconditions);
-                    System.out.println("------------------------------------------------");
-                    System.out.printf("获取IP条件=%s%s", ipcs.getMatchsymbol(), ipcs.getMatchval());
-                    System.out.println("");
-//                    if((clientIp + ipcs.getMatchsymbol() + ipcs.getMatchval())){
-//
-//                    }
-                }
-        );
-        //获取应用条件信息
-        List applicationconditionslist = (List) params.get("applicationconditionslist");
-        applicationconditionslist.forEach(
-                applicationconditions -> {
-                    AuditApplicationConditions appcs = (AuditApplicationConditions) ObjectTool.getObjectByMap(AuditApplicationConditions.class, (Map<String, Object>) applicationconditions);
-                    System.out.println("------------------------------------------------");
-                    System.out.printf("获取应用条件=%s%s", appcs.getMatchsymbol(), appcs.getMatchval());
-                    System.out.println("");
-//                    if(appcs.getMatchsymbol(){
-//
-//                    }
-                }
-        );
 
-        //获取数据库用户条件信息
-        List dbuserconditionslist = (List) params.get("dbuserconditionslist");
-        dbuserconditionslist.forEach(
-                dbuserconditions -> {
-                    AuditDbuserConditions dbusercs = (AuditDbuserConditions) ObjectTool.getObjectByMap(AuditDbuserConditions.class, (Map<String, Object>) dbuserconditions);
-                    System.out.println("------------------------------------------------");
-                    System.out.printf("获取数据库用户=%s", dbusercs.getMatchval());
-                    System.out.println("");
-                }
-        );
+    /**
+     * []
+     * admin = {
+     * "code": "POP_00014",
+     * "msg": "成功22。",
+     * "flag": true,
+     * "data": {
+     * "tableinfoList": [{
+     * "schema": "ghca2",
+     * "tablename": "information_schema.tables",
+     * "columnname": "table_name",
+     * "type": "1",
+     * "ruleid": {
+     * "ruleinfo": {
+     * "id": "",
+     * "name": "策略",
+     * "rulename": "规则名称",
+     * "type": "1",
+     * "belongtogroup": ",1",
+     * "dataareaGroup": "",
+     * "dbGroup": "1",
+     * "remark": "规则描述",
+     * "desensitizationexpression": "substr(table_name,6)",
+     * "auditswitch": "1"
+     * },
+     * "ipconditionslist": [],
+     * "applicationconditionslist": [{
+     * "matchsymbol": "=",
+     * "matchval": "admin"
+     * }],
+     * "dbuserconditionslist": [{
+     * "matchsymbol": "=",
+     * "matchval": "root"
+     * }],
+     * "dateconditionslist": [{
+     * "daterange": ["2021-03-10T16:00:00.000Z", "2021-04-09T16:00:00.000Z"],
+     * "timerange": ["00:00", "03:00"],
+     * "starttime": "2021/03/18 00:00",
+     * "endtime": "2021/04/10 03:00"
+     * }]
+     * }
+     * }]
+     * },
+     * "total": 5,
+     * "pages": 0,
+     * "pageSize": 0,
+     * "pageNum": 0
+     * }
+     **/
 
-        //获取时间条件信息
-        List dateconditionslist = (List) params.get("dateconditionslist");
-        dateconditionslist.forEach(
-                dateconditions -> {
-                    AuditDateConditions datecs = (AuditDateConditions) ObjectTool.getObjectByMap(AuditDateConditions.class, (Map<String, Object>) dateconditions);
+    private static List<Map<String, Object>> getAuthAppDataRule(Map params, ConnectionInfo conInfo) {
+        // 模拟权限列表
+        List<Map<String, Object>> authlist = new ArrayList<Map<String, Object>>();
+        Map<String, Object> authMap = new HashMap<String, Object>();
+        Boolean flag = false;
+        //获取表
+        List<Map<String, Object>> tableinfoList = (List<Map<String, Object>>) params.get("tableinfoList");
+        tableinfoList.forEach(
+                tableinfo -> {
+                    // schema名称完全匹配
+                    if (!tableinfo.get("schema").equals(conInfo.getSchema())) {
+                        return;
+                    }
+                    authMap.put("schema", tableinfo.get("schema"));
+                    authMap.put("tablename", tableinfo.get("tablename"));
+                    authMap.put("columnname", tableinfo.get("columnname"));
+                    authMap.put("type", tableinfo.get("type"));
+                    Map<String, Object> tableInfoMap = (Map<String, Object>) (tableinfo.get("ruleid"));
+                    AuditAppDataRule ruleinfo = (AuditAppDataRule) ObjectTool.getObjectByMap(AuditAppDataRule.class, (Map<String, Object>) tableInfoMap.get("ruleinfo"));
                     System.out.println("------------------------------------------------");
-                    System.out.printf("获取时间条件%s-%s", datecs.getStarttime(), datecs.getEndtime());
+                    System.out.printf("获取表达式=%s", ruleinfo.getDesensitizationexpression());
                     System.out.println("");
+                    authMap.put("name", tableinfo.get("name"));//策略
+                    authMap.put("rulename", tableinfo.get("rulename"));//规则名称
+                    authMap.put("remark", tableinfo.get("remark")); //规则描述
+                    if (StringUtils.isBlank(ruleinfo.getDesensitizationexpression())) return;
+                    authMap.put("desensitizationexpression", ruleinfo.getDesensitizationexpression());
+                    //获取IP条件信息
+                    List<Map<String, Object>> ipconditionslist = (List<Map<String, Object>>) tableInfoMap.get("ipconditionslist");
+                    final String clientIp = conInfo.getClientIp();
+                    // 模拟登录用户，默认admin登录
+                    String clientUsername = "admin";
+                    for (Map<String, Object> ipconditions : ipconditionslist) {
+                        AuditIpConditions ipcs = (AuditIpConditions) ObjectTool.getObjectByMap(AuditIpConditions.class, (Map<String, Object>) ipconditions);
+                        System.out.println("------------------------------------------------");
+                        System.out.printf("获取IP条件=%s%s", ipcs.getMatchsymbol(), ipcs.getMatchval());
+                        System.out.println("");
+                        // 来源ip 等于 不等于 包含 不包含  (= <> =% <>%)
+                        if (ipcs.getMatchsymbol().equals("=")) {
+                            if (clientIp.equals(ipcs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足IP条件%s%s%s", clientIp, ipcs.getMatchsymbol(), ipcs.getMatchval());
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        } else if (ipcs.getMatchsymbol().equals("<>")) {
+                            if (!clientIp.equals(ipcs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足IP条件%s%s%s", clientIp, ipcs.getMatchsymbol(), ipcs.getMatchval());
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        } else if (ipcs.getMatchsymbol().equals("=%")) {
+                            if (RequestUtil.ipIsValid(ipcs.getStartval(), ipcs.getEndval(), clientIp)) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足IP条件%s%s%s", clientIp, ipcs.getMatchsymbol(), ipcs.getMatchval());
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        } else if (ipcs.getMatchsymbol().equals("<>%")) {
+                            if (!RequestUtil.ipIsValid(ipcs.getStartval(), ipcs.getEndval(), clientIp)) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足IP条件%s%s%s", clientIp, ipcs.getMatchsymbol(), ipcs.getMatchval());
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        }
+                    }
+                    //获取应用条件信息
+                    List<Map<String, Object>> applicationconditionslist = (List<Map<String, Object>>) tableInfoMap.get("applicationconditionslist");
+                    for (Map<String, Object> applicationconditions : applicationconditionslist) {
+                        AuditApplicationConditions appcs = (AuditApplicationConditions) ObjectTool.getObjectByMap(AuditApplicationConditions.class, (Map<String, Object>) applicationconditions);
+                        System.out.println("------------------------------------------------");
+                        System.out.printf("获取应用条件%s%s", appcs.getMatchsymbol(), appcs.getMatchval());
+                        System.out.println("");
+                        // 应用条件 等于 不等于  (= <>)
+                        if (appcs.getMatchsymbol().equals("=")) {
+                            if (clientUsername.equals(appcs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足应用条件%s%s%s", clientUsername, appcs.getMatchsymbol(), appcs.getMatchval());
+                                System.out.println("");
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        } else if (appcs.getMatchsymbol().equals("<>")) {
+                            if (!clientUsername.equals(appcs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足应用条件%s%s%s", clientUsername, appcs.getMatchsymbol(), appcs.getMatchval());
+                                System.out.println("");
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        }
+                    }
+                    //获取数据库用户条件信息
+                    List<Map<String, Object>> dbuserconditionslist = (List<Map<String, Object>>) tableInfoMap.get("dbuserconditionslist");
+                    for (Map<String, Object> dbuserconditions : dbuserconditionslist) {
+                        AuditDbuserConditions dbusercs = (AuditDbuserConditions) ObjectTool.getObjectByMap(AuditDbuserConditions.class, (Map<String, Object>) dbuserconditions);
+                        System.out.println("------------------------------------------------");
+                        System.out.printf("获取数据库用户=%s", dbusercs.getMatchval());
+                        System.out.println("");
+                        // 数据库用户条件 等于 不等于  (= <>)
+                        if (dbusercs.getMatchsymbol().equals("=")) {
+                            if (conInfo.getUserName().equals(dbusercs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足数据库用户条件%s%s%s", conInfo.getUserName(), dbusercs.getMatchsymbol(), dbusercs.getMatchval());
+                                System.out.println("");
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        } else if (dbusercs.getMatchsymbol().equals("<>")) {
+                            if (!conInfo.getUserName().equals(dbusercs.getMatchval())) {
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("满足数据库用户条件%s%s%s", conInfo.getUserName(), dbusercs.getMatchsymbol(), dbusercs.getMatchval());
+                                break;
+                            } else {
+                                authMap.clear();
+                            }
+                        }
+                    }
+                    //获取时间条件信息
+                    List dateconditionslist = (List) tableInfoMap.get("dateconditionslist");
+                    dateconditionslist.forEach(
+                            dateconditions -> {
+                                AuditDateConditions datecs = (AuditDateConditions) ObjectTool.getObjectByMap(AuditDateConditions.class, (Map<String, Object>) dateconditions);
+                                System.out.println("------------------------------------------------");
+                                System.out.printf("获取时间条件%s , %s", datecs.getStarttime(), datecs.getEndtime());
+                                System.out.println("");
+                                try {
+                                    String format = "yyyy/MM/dd HH:mm";
+                                    java.util.Date now = new DateTime();
+                                    java.util.Date startTime = new SimpleDateFormat(format).parse(datecs.getStarttime());
+                                    java.util.Date endTime = new SimpleDateFormat(format).parse(datecs.getEndtime());
+                                    if (DateUtil.isIn(now, startTime, endTime)) {
+                                        authMap.clear();
+                                    }
+                                } catch (java.text.ParseException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                    );
+                    if (!authMap.isEmpty()) {
+                        authlist.add(authMap);
+                    }
                 }
         );
-        return true;
+        return authlist;
     }
 
     private static Collection<TableStat.Column> getColumns(String sql) {
@@ -272,10 +442,10 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
             System.out.println("拦截到数据：");
             // 判断数据脱敏，需要拿sql，解析出来table.field, 数据替换
             while (var4.next()) {
-                String value = var4.getString("table_name");
-                // String new_value = PubFunction.dePass(value);
-                String new_value = "****";
-                var4.updateString("table_name", new_value);
+//                String value = var4.getString("table_name");
+//                // String new_value = PubFunction.dePass(value);
+//                String new_value = "****";
+//                var4.updateString("table_name", new_value);
             }
             System.out.println("-----------------------------------------");
             System.out.println("脱敏后数据：");
