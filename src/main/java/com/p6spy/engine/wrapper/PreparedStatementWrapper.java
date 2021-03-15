@@ -442,10 +442,10 @@ public class PreparedStatementWrapper extends StatementWrapper implements Prepar
             System.out.println("拦截到数据：");
             // 判断数据脱敏，需要拿sql，解析出来table.field, 数据替换
             while (var4.next()) {
-//                String value = var4.getString("table_name");
-//                // String new_value = PubFunction.dePass(value);
-//                String new_value = "****";
-//                var4.updateString("table_name", new_value);
+                String value = var4.getString("table_name");
+                // String new_value = PubFunction.dePass(value);
+                String new_value = "****";
+                var4.updateString("table_name", new_value);
             }
             System.out.println("-----------------------------------------");
             System.out.println("脱敏后数据：");
